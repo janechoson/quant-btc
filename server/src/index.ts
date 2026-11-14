@@ -5,7 +5,7 @@ import { openDatabase, projectRoot, run, transaction } from './database/connecti
 import { migrateLegacyJson } from './migrate-json.js';
 import { fetchCandles, validTimeframe, type Timeframe } from './services/binance.js';
 import { createDataset, datasetCandles, datasetExamples, deleteDataset, getDataset, listDatasets } from './services/chart-learning.js';
-import { createForecast, forecastDetail, forecastSummary, listForecasts, monitorForecasts } from './services/pattern-forecast.js';
+import { createForecast, deleteForecast, forecastDetail, forecastSummary, listForecasts, monitorForecasts } from './services/pattern-forecast.js';
 
 const prodRoot=path.join(projectRoot,'dist/client'),port=Number(process.env.PORT)||4173;
 const mime:Record<string,string>={'.html':'text/html; charset=utf-8','.js':'text/javascript; charset=utf-8','.css':'text/css; charset=utf-8','.svg':'image/svg+xml','.png':'image/png','.ico':'image/x-icon','.woff2':'font/woff2'};
@@ -42,6 +42,7 @@ async function api(req:http.IncomingMessage,res:http.ServerResponse,u:URL){
   }
   if(u.pathname==='/api/forecasts'&&m==='GET'||u.pathname==='/api/prediction-history'&&m==='GET')return send(res,200,listForecasts());
   if(u.pathname==='/api/prediction-history/summary'&&m==='GET')return send(res,200,forecastSummary());
+  const historyDelete=u.pathname.match(/^\/api\/prediction-history\/([^/]+)$/);if(historyDelete&&m==='DELETE'){const id=decodeURIComponent(historyDelete[1]!);const deleted=await deleteForecast(id);return deleted?send(res,200,{deleted:true,id}):send(res,404,{error:'Không tìm thấy dự báo'});}
   const detail=u.pathname.match(/^\/api\/(?:forecasts|prediction-history)\/([^/]+)$/);if(detail&&m==='GET'){const f=forecastDetail(decodeURIComponent(detail[1]!));return f?send(res,200,f):send(res,404,{error:'Không tìm thấy dự báo'});}
   return send(res,404,{error:'API endpoint không tồn tại'});
 }

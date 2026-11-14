@@ -64,20 +64,20 @@ function update() {
   const priorRange = chart.timeScale().getVisibleLogicalRange();
   const candles = props.candles;
   price.setData(candles.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close } satisfies CandlestickData)));
-  volume.setData(candles.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? '#00d997' : '#ff5267' } satisfies HistogramData)));
+  volume.setData(candles.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? '#177653' : '#A43C34' } satisfies HistogramData)));
   volume.applyOptions({ visible: props.volumeVisible });
   ma20?.setData(average(20)); ma50?.setData(average(50));
   const forecast = props.forecast;
   if (forecast) {
     for (const line of priceLines) price.removePriceLine(line);
     priceLines = [];
-    predicted ??= chart.addCandlestickSeries({ upColor: 'rgba(0,217,151,.52)', downColor: 'rgba(255,82,103,.52)', borderUpColor: 'rgba(0,217,151,.78)', borderDownColor: 'rgba(255,82,103,.78)', wickUpColor: 'rgba(0,217,151,.82)', wickDownColor: 'rgba(255,82,103,.82)', priceLineVisible: false });
+    predicted ??= chart.addCandlestickSeries({ upColor: 'rgba(23,118,83,.58)', downColor: 'rgba(164,60,52,.58)', borderUpColor: 'rgba(23,118,83,.82)', borderDownColor: 'rgba(164,60,52,.82)', wickUpColor: 'rgba(23,118,83,.9)', wickDownColor: 'rgba(164,60,52,.9)', priceLineVisible: false });
     predicted.setData(forecast.predictedCandles.map(c => ({ ...c, time: c.time as Time })));
     const addLevel = (value: number | undefined | null, title: string, color: string) => {
       if (value && Number.isFinite(value)) priceLines.push(price!.createPriceLine({ price: value, color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title }));
     };
-    addLevel(forecast.takeProfit, 'TP', '#00d997'); addLevel(forecast.stopLoss, 'SL', '#ff5267');
-    if (forecast.entry) { addLevel(forecast.entry.low, 'Entry', '#00c48a'); if (forecast.entry.high !== forecast.entry.low) addLevel(forecast.entry.high, '', '#00c48a'); }
+    addLevel(forecast.takeProfit, 'TP', '#177653'); addLevel(forecast.stopLoss, 'SL', '#A43C34');
+    if (forecast.entry) { addLevel(forecast.entry.low, 'Entry', '#177653'); if (forecast.entry.high !== forecast.entry.low) addLevel(forecast.entry.high, '', '#177653'); }
   } else removeForecastSeries();
   const forecastChanged = (forecast?.id ?? null) !== lastForecastId;
   const timeframeChanged = props.timeframe !== lastTimeframe;
@@ -96,11 +96,11 @@ function update() {
 
 onMounted(async () => {
   if (!host.value) return;
-  chart = createChart(host.value, { layout: { background: { color: '#0b1220' }, textColor: '#8795aa', fontFamily: 'DM Mono, monospace' }, grid: { vertLines: { color: '#1b2638' }, horzLines: { color: '#1b2638' } }, crosshair: { mode: 0 }, rightPriceScale: { borderColor: '#253144', scaleMargins: { top: 0.08, bottom: 0.12 } }, timeScale: { borderColor: '#253144', timeVisible: true, rightOffset: 4 }, handleScroll: true, handleScale: true });
-  price = chart.addCandlestickSeries({ upColor: '#00d997', downColor: '#ff5267', borderVisible: false, wickUpColor: '#00d997', wickDownColor: '#ff5267' });
+  chart = createChart(host.value, { layout: { background: { color: '#FBF8F0' }, textColor: '#675E50', fontFamily: 'DM Mono, monospace' }, grid: { vertLines: { color: '#E2D8C6' }, horzLines: { color: '#E2D8C6' } }, crosshair: { mode: 0 }, rightPriceScale: { borderColor: '#CEC7B6', scaleMargins: { top: 0.08, bottom: 0.12 } }, timeScale: { borderColor: '#CEC7B6', timeVisible: true, rightOffset: 4 }, handleScroll: true, handleScale: true });
+  price = chart.addCandlestickSeries({ upColor: '#177653', downColor: '#A43C34', borderVisible: false, wickUpColor: '#177653', wickDownColor: '#A43C34' });
   volume = chart.addHistogramSeries({ priceFormat: { type: 'volume' }, priceScaleId: 'volume' });
-  ma20 = chart.addLineSeries({ color: '#ffbc22', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
-  ma50 = chart.addLineSeries({ color: '#d52bea', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  ma20 = chart.addLineSeries({ color: '#8B2020', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+  ma50 = chart.addLineSeries({ color: '#675E50', lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
   chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.82, bottom: 0 }, visible: false });
   chart.timeScale().subscribeVisibleLogicalRangeChange(syncOverlay);
   chart.subscribeCrosshairMove(param => {
@@ -118,12 +118,11 @@ onBeforeUnmount(() => { observer?.disconnect(); chart?.timeScale().unsubscribeVi
 
 <template>
   <div class="chart-region">
-    <div class="chart-tools" aria-label="Công cụ biểu đồ"><button title="Crosshair">✣</button><button title="Đường xu hướng">／</button><button title="Mức giá">☷</button><button title="Mẫu">♧</button><button title="Văn bản">T</button><button title="Thêm công cụ">⌄</button><span/><button title="Thước đo">♢</button><button title="Phóng to">⊕</button><button title="Nam châm">∩</button></div>
     <div ref="host" class="chart-host" :data-visible-logical-range="visibleRangeToken" :data-price-scale-range="priceRangeToken">
       <svg v-if="boundaryX!==null" class="forecast-overlay" :viewBox="`0 0 ${host?.clientWidth||1} ${stageHeight||1}`" preserveAspectRatio="none" aria-hidden="true">
-        <rect :x="boundaryX" y="0" :width="Math.max(0,(host?.clientWidth||0)-boundaryX)" :height="Math.max(0,stageHeight-28)" fill="rgba(160,92,255,.055)"/>
-        <path v-if="bandPath" :d="bandPath" fill="rgba(160,92,255,.18)" stroke="none"/>
-        <line :x1="boundaryX" :x2="boundaryX" y1="0" :y2="Math.max(0,stageHeight-28)" stroke="rgba(232,237,246,.82)" stroke-width="1.5" stroke-dasharray="7 6"/>
+        <rect :x="boundaryX" y="0" :width="Math.max(0,(host?.clientWidth||0)-boundaryX)" :height="Math.max(0,stageHeight-28)" fill="rgba(139,32,32,.045)"/>
+        <path v-if="bandPath" :d="bandPath" fill="rgba(139,32,32,.12)" stroke="none"/>
+        <line :x1="boundaryX" :x2="boundaryX" y1="0" :y2="Math.max(0,stageHeight-28)" stroke="rgba(43,41,36,.62)" stroke-width="1.5" stroke-dasharray="7 6"/>
       </svg>
       <span v-if="boundaryX!==null" class="forecast-start-label" :style="{left:`${Math.min(boundaryX+8,(host?.clientWidth||0)-115)}px`}">Bắt đầu dự báo</span>
       <span v-if="bandTooWide&&uncertaintyVisible" class="band-warning">Dải bất định rộng hơn vùng giá đang xem</span>

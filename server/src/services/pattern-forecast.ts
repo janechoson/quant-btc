@@ -8,6 +8,9 @@ export function forecastDetail(id:string) {
   const predictedCandles=readCandles('forecast_candles',id),actualCandles=readCandles('forecast_actual_candles',id),levels=JSON.parse(String(f.signal_levels)),metadata=JSON.parse(String(f.metadata)),evaluation=f.evaluation?JSON.parse(String(f.evaluation)):null;
   return {...f,createdAt:f.created_at,lastConfirmedCandle:f.last_confirmed_candle,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,startPrice:f.start_price,algorithmVersion:f.algorithm_version,idempotencyKey:f.idempotency_key,inputCandles:JSON.parse(String(f.input_snapshot)),predictedCandles,actualCandles,uncertainty:metadata.uncertainty||[],metadata,entry:levels.entry,takeProfit:levels.takeProfit,stopLoss:levels.stopLoss,evaluation};
 }
+export async function deleteForecast(id:string):Promise<boolean>{
+  return transaction(()=>run('DELETE FROM forecasts WHERE id=?',[id])===1);
+}
 export async function createForecast(tf:Timeframe,horizon:number,idempotencyKey?:string) {
   if(![5,10,20,30].includes(horizon))throw new Error('Chọn horizon 5, 10, 20 hoặc 30 nến.');
   if(idempotencyKey){const existing=get<{id:string}>('SELECT id FROM forecasts WHERE idempotency_key=?',[idempotencyKey]);if(existing)return forecastDetail(existing.id);}
