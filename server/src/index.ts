@@ -35,8 +35,10 @@ async function api(req:http.IncomingMessage,res:http.ServerResponse,u:URL){
     if(m==='GET')return send(res,200,dataset);
   }
   if(u.pathname==='/api/forecasts'&&m==='POST'){
-    const body=await readBody(req),tf=body.timeframe||'1H',horizon=Number(body.horizon)||10;if(!validTimeframe(tf)||!Number.isInteger(horizon)||horizon<1||horizon>30)return send(res,400,{error:'Khung thời gian hoặc horizon không hợp lệ'});
-    const key=String(req.headers['idempotency-key']||'').slice(0,200)||undefined;return send(res,201,await createForecast(tf as Timeframe,horizon,key));
+    const body=await readBody(req),tf=body.timeframe||'1H',horizon=Number(body.horizon)||10;if(!validTimeframe(tf)||![5,10,20,30].includes(horizon))return send(res,400,{error:'Khung thời gian không hợp lệ; horizon phải là 5, 10, 20 hoặc 30 nến'});
+    const key=String(req.headers['idempotency-key']||'').slice(0,200)||undefined;
+    try{return send(res,201,await createForecast(tf as Timeframe,horizon,key));}
+    catch(error){if(error instanceof Error&&error.message.startsWith('Chưa đủ'))return send(res,422,{error:error.message});throw error;}
   }
   if(u.pathname==='/api/forecasts'&&m==='GET'||u.pathname==='/api/prediction-history'&&m==='GET')return send(res,200,listForecasts());
   if(u.pathname==='/api/prediction-history/summary'&&m==='GET')return send(res,200,forecastSummary());

@@ -1,29 +1,23 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { all, get, run, transaction } from '../database/connection.js';
 import { fetchCandles, timeframeMs, type Candle, type Timeframe } from './binance.js';
-import { normalized } from './chart-learning.js';
 import { evaluateForecast, insertEvaluation, readCandles } from './evaluation.js';
-
-function forecastPath(candles:Candle[],horizon:number,timeframe:Timeframe,examples:{features:number[][];outcomes:number[]}[]) {
-  const last=candles.at(-1)!,step=timeframeMs(timeframe),returns=candles.slice(-24).map(c=>Math.log(c.close/c.open));
-  const drift=returns.reduce((a,b)=>a+b,0)/returns.length,vol=Math.sqrt(returns.reduce((a,b)=>a+(b-drift)**2,0)/Math.max(1,returns.length-1)),features=normalized(candles),
-    matches=examples.map(e=>({e,d:e.features.reduce((s,row,i)=>s+row.reduce((t,x,j)=>t+(x-(features[i]?.[j]??0))**2,0),0)})).sort((a,b)=>a.d-b.d).slice(0,8);
-  const paths=matches.flatMap(m=>m.e.outcomes||[]),meanMove=paths.length?paths.reduce((a,b)=>a+b,0)/paths.length:drift;
-  let prev=last.close;const predictedCandles=Array.from({length:horizon},(_,i)=>{const r=(drift*.35+meanMove*.65)*(i===0?1:.7**i),open=prev,close=Math.max(.01,open*Math.exp(r)),spread=Math.max(vol*.7,.001),c={time:last.time+(i+1)*step/1000,open,close,high:Math.max(open,close)*Math.exp(spread*.6),low:Math.min(open,close)*Math.exp(-spread*.6)};prev=close;return c;});
-  const move=predictedCandles.at(-1)!.close/last.close-1,signal=move>vol*Math.sqrt(horizon)*.65?'LONG':move < -vol*Math.sqrt(horizon)*.65?'SHORT':'NO TRADE',range=last.close*vol*Math.sqrt(horizon);
-  const uncertainty=predictedCandles.map((c,i)=>({time:c.time,low:c.close-range*Math.sqrt((i+1)/horizon),high:c.close+range*Math.sqrt((i+1)/horizon)}));
-  return {predictedCandles,uncertainty,signal,levels:{entry:signal==='NO TRADE'?null:{low:last.close*(1-vol*.4),high:last.close*(1+vol*.4)},takeProfit:signal==='LONG'?last.close+range:signal==='SHORT'?last.close-range:null,stopLoss:signal==='LONG'?last.close-range*.65:signal==='SHORT'?last.close+range*.65:null},metadata:{provider:'PatternForecastProvider',version:'pattern-knn-v1',neighbors:matches.length,confidenceLabel:matches.length?'Mẫu lịch sử gần nhất':'Thống kê biến động',featureHash:createHash('sha256').update(JSON.stringify(features)).digest('hex'),volatility:vol}};
-}
+import { buildHistoricalExamples, forecastPath } from './forecast-engine.js';
 export function forecastDetail(id:string) {
   const f=get<Record<string,any>>('SELECT * FROM forecasts WHERE id=?',[id]);if(!f)return null;
   const predictedCandles=readCandles('forecast_candles',id),actualCandles=readCandles('forecast_actual_candles',id),levels=JSON.parse(String(f.signal_levels)),metadata=JSON.parse(String(f.metadata)),evaluation=f.evaluation?JSON.parse(String(f.evaluation)):null;
   return {...f,createdAt:f.created_at,lastConfirmedCandle:f.last_confirmed_candle,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,startPrice:f.start_price,algorithmVersion:f.algorithm_version,idempotencyKey:f.idempotency_key,inputCandles:JSON.parse(String(f.input_snapshot)),predictedCandles,actualCandles,uncertainty:metadata.uncertainty||[],metadata,entry:levels.entry,takeProfit:levels.takeProfit,stopLoss:levels.stopLoss,evaluation};
 }
 export async function createForecast(tf:Timeframe,horizon:number,idempotencyKey?:string) {
+  if(![5,10,20,30].includes(horizon))throw new Error('Chọn horizon 5, 10, 20 hoặc 30 nến.');
   if(idempotencyKey){const existing=get<{id:string}>('SELECT id FROM forecasts WHERE idempotency_key=?',[idempotencyKey]);if(existing)return forecastDetail(existing.id);}
   const candles=(await fetchCandles('BTCUSDT',tf,150)).filter(c=>c.closed);if(candles.length<24)throw new Error('Không đủ nến đã đóng để dự báo');
-  const last=candles.at(-1)!,examples=all<{input_features:string;target_returns:string}>('SELECT e.input_features,e.target_returns FROM learning_examples e JOIN learning_datasets d ON d.id=e.dataset_id WHERE d.timeframe=? AND e.target_end_time<? ORDER BY e.input_end_time DESC LIMIT 2000',[tf,last.time]).map(x=>({features:JSON.parse(x.input_features),outcomes:JSON.parse(x.target_returns)}));
-  const result=forecastPath(candles,horizon,tf,examples),id=randomUUID(),step=timeframeMs(tf),createdAt=new Date().toISOString(),start=last.time+step/1000,end=last.time+(horizon+1)*step/1000;
+  const last=candles.at(-1)!,history=all<Record<string,unknown>>(`SELECT DISTINCT c.open_time time,c.open,c.high,c.low,c.close,c.volume
+    FROM market_candles c JOIN learning_datasets d ON d.symbol=c.symbol AND d.timeframe=c.timeframe
+      AND c.open_time>=d.start_time AND c.open_time<=d.end_time AND d.status='READY'
+    WHERE c.symbol='BTC/USDT' AND c.timeframe=? AND c.open_time<? ORDER BY c.open_time DESC LIMIT 30000`,[tf,last.time]).reverse().map(row=>({time:Number(row.time),open:Number(row.open),high:Number(row.high),low:Number(row.low),close:Number(row.close),volume:Number(row.volume)}));
+  const examples=buildHistoricalExamples(history,last.time,tf,horizon);
+  const result=forecastPath(candles,horizon,tf,examples),id=randomUUID(),step=timeframeMs(tf),createdAt=new Date().toISOString(),start=last.time+step/1000,end=last.time+horizon*step/1000;
   const metadata={...result.metadata,uncertainty:result.uncertainty};
   const savedId=await transaction(()=>{
     if(idempotencyKey){const existing=get<{id:string}>('SELECT id FROM forecasts WHERE idempotency_key=?',[idempotencyKey]);if(existing)return existing.id;}
