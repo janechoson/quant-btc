@@ -34,7 +34,13 @@ describe('forecast feature matching and path generation', () => {
 
   it('builds only contiguous, timeframe-aligned history windows for the requested horizon', () => {
     const rows = series(100, '4H');
-    expect(buildHistoricalExamples(rows, rows.at(-1)!.time + step['4H'], '4H', 20)).toHaveLength(100 - 24 - 20 + 1);
+    const examples=buildHistoricalExamples(rows, rows.at(-1)!.time + step['4H'], '4H', 20);
+    expect(examples).toHaveLength(100 - 24 - 20 + 1);
+    const reference=examples[0]!.reference!;
+    expect(reference.inputCandles).toEqual(rows.slice(0,24).map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume})));
+    expect(reference.continuationCandles).toEqual(rows.slice(24,44).map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume})));
+    expect(reference.referenceStartTime).toBe(rows[0]!.time);expect(reference.referenceEndTime).toBe(rows[43]!.time);
+    expect(new Set([...reference.inputCandles,...reference.continuationCandles].map(c=>c.time)).size).toBe(44);
     const withGap = rows.map(row => ({ ...row })); withGap[55]!.time += 1;
     expect(buildHistoricalExamples(withGap, rows.at(-1)!.time + step['4H'], '4H', 20).length).toBeLessThan(57);
   });
@@ -47,6 +53,16 @@ describe('forecast feature matching and path generation', () => {
     expect(returns[0]).toBeGreaterThan(returns[1]!);
     expect(returns[1]).toBeLessThan(0);
     expect(returns[2]).toBeGreaterThan(returns[1]!);
+  });
+
+  it('selects the highest-weight historical match actually used by the forecast',()=>{
+    const input=series(25),examples=repeatedExamples(input,5);
+    examples.forEach((example,i)=>{const reference=series(40).slice(i,i+29);example.reference={exampleId:`example-${String(i).padStart(2,'0')}`,datasetId:`dataset-${i}`,referenceStartTime:reference[0]!.time,referenceEndTime:reference.at(-1)!.time,inputCandles:reference.slice(0,24).map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume})),continuationCandles:reference.slice(24).map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume}))};example.features=normalizedFeatures(input).map(value=>value+(i===7?0:.05+i*.001));});
+    const result=forecastPath(input,5,'1H',examples);
+    expect(result.referenceMatch?.exampleId).toBe('example-07');
+    expect(result.referenceMatch?.datasetId).toBe('dataset-7');
+    expect(result.referenceMatch?.matchDistance).toBe(0);
+    expect(result.referenceMatch?.matchWeight).toBeGreaterThan(0);
   });
 
   it('emits continuous, finite OHLC with historical wick estimates', () => {

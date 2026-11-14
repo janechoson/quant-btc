@@ -20,8 +20,15 @@ export async function openDatabase(): Promise<Database> {
   catch (error) { if((error as NodeJS.ErrnoException).code!=='ENOENT')throw error;database = new SQL.Database(); }
   database.run('PRAGMA foreign_keys = ON');
   database.run(schema);
+  const forecastColumns=database.exec('PRAGMA table_info(forecasts)')[0]?.values||[];
+  if(!forecastColumns.some(column=>column[1]==='reference_snapshot'))database.run('ALTER TABLE forecasts ADD COLUMN reference_snapshot TEXT');
+  database.run('DROP TRIGGER IF EXISTS immutable_forecast_snapshot');
+  database.run(`CREATE TRIGGER immutable_forecast_snapshot
+    BEFORE UPDATE OF id,idempotency_key,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,signal,algorithm_version,input_snapshot,metadata,signal_levels,reference_snapshot ON forecasts
+    BEGIN SELECT RAISE(ABORT,'immutable forecast snapshot'); END`);
   database.run('PRAGMA foreign_keys = ON');
   database.run('INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(1,?)', [new Date().toISOString()]);
+  database.run('INSERT OR IGNORE INTO schema_migrations(version,applied_at) VALUES(3,?)', [new Date().toISOString()]);
   await persistDatabase();
   return database;
 }

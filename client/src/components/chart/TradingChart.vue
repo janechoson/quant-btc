@@ -3,7 +3,7 @@ import { onBeforeUnmount, onMounted, watch, ref, nextTick } from 'vue';
 import { createChart, LineStyle, type IChartApi, type ISeriesApi, type IPriceLine, type CandlestickData, type HistogramData, type Time } from 'lightweight-charts';
 import type { Candle, Forecast } from '../../types';
 
-const props = withDefaults(defineProps<{ candles: Candle[]; forecast: Forecast | null; timeframe: string; volumeVisible: boolean; uncertaintyVisible?: boolean }>(), { uncertaintyVisible: true });
+const props = withDefaults(defineProps<{ candles: Candle[]; liveCandle?: Candle | null; forecast: Forecast | null; timeframe: string; volumeVisible: boolean; uncertaintyVisible?: boolean }>(), { liveCandle: null, uncertaintyVisible: true });
 const emit = defineEmits<{ ohlc: [candle: Candle | null] }>();
 const host = ref<HTMLDivElement>();
 const boundaryX = ref<number | null>(null);
@@ -23,6 +23,7 @@ let observer: ResizeObserver | undefined;
 let firstLayout = true;
 let lastForecastId: string | null = null;
 let lastTimeframe = '';
+let previousCandles: Candle[] = [];
 
 const average = (n: number) => props.candles.flatMap((c, i) => i < n - 1 ? [] : [{ time: c.time as Time, value: props.candles.slice(i - n + 1, i + 1).reduce((s, x) => s + x.close, 0) / n }]);
 
@@ -59,12 +60,35 @@ function removeForecastSeries() {
   priceLines = [];
 }
 
+function updateLiveCandle(candle: Candle | null) {
+  if (!candle || !price || !volume || !chart) return;
+  const liveColor = candle.close >= candle.open ? 'rgba(23,118,83,.58)' : 'rgba(164,60,52,.58)';
+  price.update({ time: candle.time as Time, open: candle.open, high: candle.high, low: candle.low, close: candle.close, color: liveColor, borderColor: liveColor, wickColor: liveColor });
+  volume.update({ time: candle.time as Time, value: candle.volume, color: liveColor });
+  for (const [period, series] of [[20, ma20], [50, ma50]] as const) {
+    const rows = [...props.candles, candle];
+    if (rows.length >= period && series) series.update({ time: candle.time as Time, value: rows.slice(-period).reduce((sum, row) => sum + row.close, 0) / period });
+  }
+  requestAnimationFrame(syncOverlay);
+}
+
 function update() {
   if (!price || !volume || !chart) return;
   const priorRange = chart.timeScale().getVisibleLogicalRange();
   const candles = props.candles;
-  price.setData(candles.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close } satisfies CandlestickData)));
-  volume.setData(candles.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? '#177653' : '#A43C34' } satisfies HistogramData)));
+  const samePrefix = (length: number) => previousCandles.slice(0, length).every((c, i) => candles[i]?.time === c.time);
+  const appending = lastTimeframe === props.timeframe && previousCandles.length > 0 && candles.length === previousCandles.length + 1 && samePrefix(previousCandles.length);
+  const replacingLast = lastTimeframe === props.timeframe && candles.length === previousCandles.length && candles.length > 0 && candles.at(-1)?.time === previousCandles.at(-1)?.time && samePrefix(candles.length - 1);
+  const latestChanged = replacingLast && JSON.stringify(candles.at(-1)) !== JSON.stringify(previousCandles.at(-1));
+  if (appending || latestChanged) {
+    const candle = candles.at(-1)!;
+    price.update({ time: candle.time as Time, open: candle.open, high: candle.high, low: candle.low, close: candle.close });
+    volume.update({ time: candle.time as Time, value: candle.volume, color: candle.close >= candle.open ? '#177653' : '#A43C34' });
+  } else if (JSON.stringify(candles.map(c => c.time)) !== JSON.stringify(previousCandles.map(c => c.time)) || !samePrefix(candles.length)) {
+    price.setData(candles.map(c => ({ time: c.time as Time, open: c.open, high: c.high, low: c.low, close: c.close } satisfies CandlestickData)));
+    volume.setData(candles.map(c => ({ time: c.time as Time, value: c.volume, color: c.close >= c.open ? '#177653' : '#A43C34' } satisfies HistogramData)));
+  }
+  previousCandles = candles.slice();
   volume.applyOptions({ visible: props.volumeVisible });
   ma20?.setData(average(20)); ma50?.setData(average(50));
   const forecast = props.forecast;
@@ -109,10 +133,11 @@ onMounted(async () => {
   });
   observer = new ResizeObserver(entries => { const width = entries[0]?.contentRect.width; if (width) { chart?.applyOptions({ width }); requestAnimationFrame(syncOverlay); } });
   observer.observe(host.value);
-  await nextTick(); update();
+  await nextTick(); update(); updateLiveCandle(props.liveCandle);
 });
 
 watch(() => [props.candles, props.forecast, props.volumeVisible, props.uncertaintyVisible, props.timeframe], update, { deep: false });
+watch(() => props.liveCandle, updateLiveCandle, { deep: false });
 onBeforeUnmount(() => { observer?.disconnect(); chart?.timeScale().unsubscribeVisibleLogicalRangeChange(syncOverlay); chart?.remove(); chart = undefined; });
 </script>
 

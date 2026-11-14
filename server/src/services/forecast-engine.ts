@@ -1,12 +1,20 @@
 import { createHash } from 'node:crypto';
 import { timeframeMs, type Candle, type Timeframe } from './binance.js';
-type ForecastCandle = Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close' | 'volume'>;
+export type ForecastCandle = Pick<Candle, 'time' | 'open' | 'high' | 'low' | 'close' | 'volume'>;
 
 export type HistoricalExample = {
   features: number[];
   returns: number[];
   upperWicks: number[];
   lowerWicks: number[];
+  reference?: {
+    exampleId: string;
+    datasetId: string | null;
+    referenceStartTime: number;
+    referenceEndTime: number;
+    inputCandles: ForecastCandle[];
+    continuationCandles: ForecastCandle[];
+  };
 };
 
 const INPUT_WINDOW = 24;
@@ -45,7 +53,8 @@ export function normalizedFeatures(candles: ForecastCandle[], window = INPUT_WIN
 
 /** Constructs examples separately for the requested horizon; target paths are
  * never padded or repeated to claim a longer learned forecast. */
-export function buildHistoricalExamples(history: ForecastCandle[], beforeTime: number, timeframe: Timeframe, horizon: number, window = INPUT_WINDOW): HistoricalExample[] {
+type HistoricalCandle = ForecastCandle & { sourceDatasetIds?: string[] };
+export function buildHistoricalExamples(history: HistoricalCandle[], beforeTime: number, timeframe: Timeframe, horizon: number, window = INPUT_WINDOW): HistoricalExample[] {
   const step = timeframeMs(timeframe) / 1000;
   const rows = [...new Map(history.filter(c => c.time < beforeTime).map(c => [c.time, c])).values()].sort((a, b) => a.time - b.time);
   const examples: HistoricalExample[] = [];
@@ -65,7 +74,15 @@ export function buildHistoricalExamples(history: ForecastCandle[], beforeTime: n
       lowerWicks.push(Math.log(Math.min(candle.low, candle.open, candle.close) / Math.min(candle.open, candle.close)));
       previousClose = candle.close;
     }
-    examples.push({ features: normalizedFeatures(input, window), returns, upperWicks, lowerWicks });
+    const coveredDatasets = sequence.map(c => new Set(c.sourceDatasetIds || []));
+    const datasetId = [...(coveredDatasets[0] || [])].filter(id => coveredDatasets.every(ids => ids.has(id))).sort()[0] || null;
+    const inputCandles = input.map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume}));
+    const continuationCandles = future.map(({time,open,high,low,close,volume})=>({time,open,high,low,close,volume}));
+    const referenceStartTime = input[0]!.time, referenceEndTime = future.at(-1)!.time;
+    examples.push({ features: normalizedFeatures(input, window), returns, upperWicks, lowerWicks, reference: {
+      exampleId: `${timeframe}:${referenceStartTime}:${input.at(-1)!.time}:${horizon}`,
+      datasetId, referenceStartTime, referenceEndTime, inputCandles, continuationCandles,
+    } });
   }
   return examples;
 }
@@ -110,6 +127,10 @@ export function forecastPath(candles: ForecastCandle[], horizon: number, timefra
     .slice(0, NEIGHBOR_COUNT);
   if (matches.length < MIN_EXAMPLES) throw new Error(`Chưa đủ ${MIN_EXAMPLES} mẫu cùng horizon ${horizon} sau khi kiểm tra feature.`);
   const weights = matches.map(match => Math.exp(-0.5 * Math.min(match.distance, 100)));
+  const totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+  const referenceCandidates = matches.map((match, index) => ({ match, index, weight: weights[index]! })).filter(row => row.match.example.reference);
+  referenceCandidates.sort((a, b) => b.weight - a.weight || a.match.distance - b.match.distance || a.match.example.reference!.referenceStartTime - b.match.example.reference!.referenceStartTime || a.match.example.reference!.exampleId.localeCompare(b.match.example.reference!.exampleId));
+  const topReference = referenceCandidates[0];
   let previousClose = last.close;
   let cumulativeReturns = matches.map(() => 0);
   const step = timeframeMs(timeframe) / 1000;
@@ -146,6 +167,7 @@ export function forecastPath(candles: ForecastCandle[], horizon: number, timefra
       : { entry: null, takeProfit: null, stopLoss: null };
   return {
     predictedCandles, uncertainty, signal, levels,
+    referenceMatch: topReference ? { ...topReference.match.example.reference!, matchDistance: topReference.match.distance, matchWeight: topReference.weight / totalWeight } : null,
     metadata: {
       provider: 'PatternForecastProvider', version: 'pattern-knn-v2-path', neighbors: matches.length,
       historyExamples: examples.length, inputWindow: INPUT_WINDOW, horizon,

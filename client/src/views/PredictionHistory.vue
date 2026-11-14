@@ -2,10 +2,12 @@
 import { computed, onMounted, ref } from 'vue';
 import { useForecastStore } from '../stores/forecast';
 import ComparisonChart from '../components/chart/ComparisonChart.vue';
+import ReferenceChartModal from '../components/forecast/ReferenceChartModal.vue';
 import type { Forecast } from '../types';
 
 const store = useForecastStore();
 const selected = ref<Forecast | null>(null);
+const referenceOpen = ref(false);
 const filter = ref('ALL');
 const deletingId = ref<string | null>(null);
 const historyError = ref('');
@@ -53,6 +55,7 @@ onMounted(() => { void refresh(); });
         <tr v-if="!rows.length"><td colspan="8" class="empty-row">Chưa có dự báo trong bộ lọc này.</td></tr>
       </tbody></table></div>
     </div>
-    <div v-if="selected" class="panel detail"><div class="panel-title"><span>SO SÁNH DỰ BÁO · {{selected.id.slice(0,8)}}</span><button class="icon-button" aria-label="Đóng so sánh" @click="selected=null">×</button></div><h3>{{selected.timeframe}} · {{selected.signal}} · {{selected.status}} · {{selected.progress}}/{{selected.horizon}}</h3><ComparisonChart :forecast="selected"/><p v-if="selected.evaluation">Hướng: {{selected.evaluation.direction}} · Sai số giá cuối: {{fmt(selected.evaluation.priceError)}} · Điểm đường đi: {{selected.evaluation.pathScore.toFixed(1)}}/100</p></div>
+    <div v-if="selected" class="panel detail"><div class="panel-title"><span>SO SÁNH DỰ BÁO · {{selected.id.slice(0,8)}}</span><button class="icon-button" aria-label="Đóng so sánh" @click="selected=null">×</button></div><h3>{{selected.timeframe}} · {{selected.signal}} · {{selected.status}} · {{selected.progress}}/{{selected.horizon}}</h3><ComparisonChart :forecast="selected"/><p v-if="selected.evaluation">Hướng: {{selected.evaluation.direction}} · Sai số giá cuối: {{fmt(selected.evaluation.priceError)}} · Điểm đường đi: {{selected.evaluation.pathScore.toFixed(1)}}/100</p><button class="reference-chart-button" type="button" @click="referenceOpen=true">📊 Chart tham chiếu</button></div>
+    <ReferenceChartModal :open="referenceOpen" :forecast="selected" @close="referenceOpen=false"/>
   </section>
 </template>

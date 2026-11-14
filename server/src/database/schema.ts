@@ -27,12 +27,12 @@ CREATE TABLE IF NOT EXISTS forecasts (
   forecast_start INTEGER NOT NULL, forecast_end INTEGER NOT NULL, start_price REAL NOT NULL,
   status TEXT NOT NULL, progress INTEGER NOT NULL DEFAULT 0, signal TEXT NOT NULL,
   algorithm_version TEXT NOT NULL, input_snapshot TEXT NOT NULL, metadata TEXT NOT NULL,
-  signal_levels TEXT NOT NULL, evaluation TEXT
+  signal_levels TEXT NOT NULL, evaluation TEXT, reference_snapshot TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_forecasts_status_start ON forecasts(status,forecast_start);
 CREATE INDEX IF NOT EXISTS idx_forecasts_created ON forecasts(created_at DESC);
 CREATE TRIGGER IF NOT EXISTS immutable_forecast_snapshot
-BEFORE UPDATE OF id,idempotency_key,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,signal,algorithm_version,input_snapshot,metadata,signal_levels ON forecasts
+BEFORE UPDATE OF id,idempotency_key,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,signal,algorithm_version,input_snapshot,metadata,signal_levels,reference_snapshot ON forecasts
 BEGIN SELECT RAISE(ABORT,'forecast snapshot is immutable'); END;
 CREATE TABLE IF NOT EXISTS forecast_candles (
   forecast_id TEXT NOT NULL REFERENCES forecasts(id) ON DELETE CASCADE, candle_time INTEGER NOT NULL,

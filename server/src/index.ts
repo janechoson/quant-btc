@@ -3,7 +3,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { openDatabase, projectRoot, run, transaction } from './database/connection.js';
 import { migrateLegacyJson } from './migrate-json.js';
-import { fetchCandles, validTimeframe, type Timeframe } from './services/binance.js';
+import { fetchCandles, fetchTicker24h, validTimeframe, type Timeframe } from './services/binance.js';
 import { createDataset, datasetCandles, datasetExamples, deleteDataset, getDataset, listDatasets } from './services/chart-learning.js';
 import { createForecast, deleteForecast, forecastDetail, forecastSummary, listForecasts, monitorForecasts } from './services/pattern-forecast.js';
 
@@ -14,6 +14,7 @@ async function readBody(req:http.IncomingMessage){let text='';for await(const c 
 async function api(req:http.IncomingMessage,res:http.ServerResponse,u:URL){
   const m=req.method||'GET';
   if(u.pathname==='/api/market/status')return send(res,200,{exchange:'Binance',market:'SPOT',symbol:'BTC/USDT',checkedAt:new Date().toISOString()});
+  if(u.pathname==='/api/market/ticker'&&m==='GET')return send(res,200,await fetchTicker24h());
   if(u.pathname==='/api/market/candles'&&m==='GET'){
     const tf=u.searchParams.get('timeframe')||'1H',limit=Math.min(1000,Math.max(1,Number(u.searchParams.get('limit'))||500));if(!validTimeframe(tf))return send(res,400,{error:'Timeframe không hợp lệ'});
     const candles=(await fetchCandles('BTCUSDT',tf as Timeframe,limit)).filter(c=>c.closed);

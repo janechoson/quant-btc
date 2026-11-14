@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { Forecast } from '../../types';
 const props = defineProps<{ forecast: Forecast | null; error?: string }>();
+const emit = defineEmits<{ reference: [] }>();
 const fmt = (value: number) => Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const finalPrice = computed(() => props.forecast?.predictedCandles.at(-1)?.close ?? null);
 const expectedMove = computed(() => props.forecast && finalPrice.value !== null ? (finalPrice.value / props.forecast.start_price - 1) * 100 : null);
@@ -33,6 +34,7 @@ const expectedMove = computed(() => props.forecast && finalPrice.value !== null 
       </div>
       <div class="quantile-note" v-if="forecast.metadata.quantiles">Dải q10–q90 là phân vị thực nghiệm có trọng số từ {{forecast.metadata.quantiles.sampleCount}} mẫu; chưa được hiệu chuẩn thành xác suất.</div>
       <div class="quantile-note" v-else>Dự báo đã lưu từ phiên bản thuật toán cũ; nến gốc được giữ nguyên.</div>
+      <button class="reference-chart-button" type="button" @click="emit('reference')">📊 Chart tham chiếu</button>
     </template>
     <div v-else class="forecast-empty"><b>{{error?'Chưa thể tạo dự báo':'Chưa có dự báo'}}</b><span>{{error||'Tạo dự báo để xem đường đi, phạm vi giá và trạng thái mẫu học.'}}</span></div>
   </aside>

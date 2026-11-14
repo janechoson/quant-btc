@@ -3,10 +3,24 @@ import { all, get, run, transaction } from '../database/connection.js';
 import { fetchCandles, timeframeMs, type Candle, type Timeframe } from './binance.js';
 import { evaluateForecast, insertEvaluation, readCandles } from './evaluation.js';
 import { buildHistoricalExamples, forecastPath } from './forecast-engine.js';
+import type { ForecastCandle } from './forecast-engine.js';
+
+export interface ForecastReferenceChart {
+  exampleId:string;datasetId:string|null;timeframe:Timeframe;referenceStartTime:number;referenceEndTime:number;
+  matchDistance:number;matchWeight:number;inputCandles:ForecastCandle[];continuationCandles:ForecastCandle[];
+}
+function validReferenceSnapshot(value:ForecastReferenceChart|null,tf:Timeframe,horizon:number):ForecastReferenceChart|null {
+  if(!value||value.timeframe!==tf||value.inputCandles.length!==24||value.continuationCandles.length!==horizon||!Number.isFinite(value.matchDistance)||!Number.isFinite(value.matchWeight))return null;
+  const step=timeframeMs(tf)/1000,sequence=[...value.inputCandles,...value.continuationCandles];
+  if(sequence.some((c,i)=>!Number.isFinite(c.time)||!Number.isFinite(c.open)||!Number.isFinite(c.high)||!Number.isFinite(c.low)||!Number.isFinite(c.close)||!Number.isFinite(c.volume)||c.open<=0||c.low<=0||c.low>Math.min(c.open,c.close)||c.high<Math.max(c.open,c.close)||(i>0&&(c.time<=sequence[i-1]!.time||c.time-sequence[i-1]!.time!==step))))return null;
+  if(value.referenceStartTime!==sequence[0]!.time||value.referenceEndTime!==sequence.at(-1)!.time||value.matchDistance<0||value.matchWeight<0||value.matchWeight>1)return null;
+  return value;
+}
 export function forecastDetail(id:string) {
   const f=get<Record<string,any>>('SELECT * FROM forecasts WHERE id=?',[id]);if(!f)return null;
-  const predictedCandles=readCandles('forecast_candles',id),actualCandles=readCandles('forecast_actual_candles',id),levels=JSON.parse(String(f.signal_levels)),metadata=JSON.parse(String(f.metadata)),evaluation=f.evaluation?JSON.parse(String(f.evaluation)):null;
-  return {...f,createdAt:f.created_at,lastConfirmedCandle:f.last_confirmed_candle,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,startPrice:f.start_price,algorithmVersion:f.algorithm_version,idempotencyKey:f.idempotency_key,inputCandles:JSON.parse(String(f.input_snapshot)),predictedCandles,actualCandles,uncertainty:metadata.uncertainty||[],metadata,entry:levels.entry,takeProfit:levels.takeProfit,stopLoss:levels.stopLoss,evaluation};
+  const {reference_snapshot,...row}=f,predictedCandles=readCandles('forecast_candles',id),actualCandles=readCandles('forecast_actual_candles',id),levels=JSON.parse(String(f.signal_levels)),metadata=JSON.parse(String(f.metadata)),evaluation=f.evaluation?JSON.parse(String(f.evaluation)):null;
+  let referenceChart:ForecastReferenceChart|null=null;try{referenceChart=reference_snapshot?JSON.parse(String(reference_snapshot)):null;}catch{/* legacy or malformed snapshots are represented as unavailable */}
+  return {...row,createdAt:f.created_at,lastConfirmedCandle:f.last_confirmed_candle,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,startPrice:f.start_price,algorithmVersion:f.algorithm_version,idempotencyKey:f.idempotency_key,inputCandles:JSON.parse(String(f.input_snapshot)),predictedCandles,actualCandles,uncertainty:metadata.uncertainty||[],metadata,entry:levels.entry,takeProfit:levels.takeProfit,stopLoss:levels.stopLoss,evaluation,referenceChart};
 }
 export async function deleteForecast(id:string):Promise<boolean>{
   return transaction(()=>run('DELETE FROM forecasts WHERE id=?',[id])===1);
@@ -15,16 +29,17 @@ export async function createForecast(tf:Timeframe,horizon:number,idempotencyKey?
   if(![5,10,20,30].includes(horizon))throw new Error('Chọn horizon 5, 10, 20 hoặc 30 nến.');
   if(idempotencyKey){const existing=get<{id:string}>('SELECT id FROM forecasts WHERE idempotency_key=?',[idempotencyKey]);if(existing)return forecastDetail(existing.id);}
   const candles=(await fetchCandles('BTCUSDT',tf,150)).filter(c=>c.closed);if(candles.length<24)throw new Error('Không đủ nến đã đóng để dự báo');
-  const last=candles.at(-1)!,history=all<Record<string,unknown>>(`SELECT DISTINCT c.open_time time,c.open,c.high,c.low,c.close,c.volume
+  const last=candles.at(-1)!,history=all<Record<string,unknown>>(`SELECT c.open_time time,c.open,c.high,c.low,c.close,c.volume,GROUP_CONCAT(DISTINCT d.id) dataset_ids
     FROM market_candles c JOIN learning_datasets d ON d.symbol=c.symbol AND d.timeframe=c.timeframe
       AND c.open_time>=d.start_time AND c.open_time<=d.end_time AND d.status='READY'
-    WHERE c.symbol='BTC/USDT' AND c.timeframe=? AND c.open_time<? ORDER BY c.open_time DESC LIMIT 30000`,[tf,last.time]).reverse().map(row=>({time:Number(row.time),open:Number(row.open),high:Number(row.high),low:Number(row.low),close:Number(row.close),volume:Number(row.volume)}));
+    WHERE c.symbol='BTC/USDT' AND c.timeframe=? AND c.open_time<? GROUP BY c.open_time,c.open,c.high,c.low,c.close,c.volume ORDER BY c.open_time DESC LIMIT 30000`,[tf,last.time]).reverse().map(row=>({time:Number(row.time),open:Number(row.open),high:Number(row.high),low:Number(row.low),close:Number(row.close),volume:Number(row.volume),sourceDatasetIds:String(row.dataset_ids||'').split(',').filter(Boolean)}));
   const examples=buildHistoricalExamples(history,last.time,tf,horizon);
   const result=forecastPath(candles,horizon,tf,examples),id=randomUUID(),step=timeframeMs(tf),createdAt=new Date().toISOString(),start=last.time+step/1000,end=last.time+horizon*step/1000;
   const metadata={...result.metadata,uncertainty:result.uncertainty};
+  const referenceChart=validReferenceSnapshot(result.referenceMatch?{...result.referenceMatch,timeframe:tf}:null,tf,horizon);
   const savedId=await transaction(()=>{
     if(idempotencyKey){const existing=get<{id:string}>('SELECT id FROM forecasts WHERE idempotency_key=?',[idempotencyKey]);if(existing)return existing.id;}
-    run('INSERT INTO forecasts(id,idempotency_key,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,status,progress,signal,algorithm_version,input_snapshot,metadata,signal_levels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,idempotencyKey||null,'BTCUSDT',tf,horizon,createdAt,last.time,start,end,last.close,'MONITORING',0,result.signal,result.metadata.version,JSON.stringify(candles.slice(-60)),JSON.stringify(metadata),JSON.stringify(result.levels)]);
+    run('INSERT INTO forecasts(id,idempotency_key,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,status,progress,signal,algorithm_version,input_snapshot,metadata,signal_levels,reference_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',[id,idempotencyKey||null,'BTCUSDT',tf,horizon,createdAt,last.time,start,end,last.close,'MONITORING',0,result.signal,result.metadata.version,JSON.stringify(candles.slice(-60)),JSON.stringify(metadata),JSON.stringify(result.levels),referenceChart?JSON.stringify(referenceChart):null]);
     for(const c of result.predictedCandles)run('INSERT INTO forecast_candles(forecast_id,candle_time,open,high,low,close) VALUES(?,?,?,?,?,?)',[id,c.time,c.open,c.high,c.low,c.close]);
     return id;
   });
@@ -54,5 +69,5 @@ export async function monitorForecasts(){
 export function listForecasts(){return all<Record<string,any>>(`SELECT f.*,
  (SELECT close FROM forecast_candles c WHERE c.forecast_id=f.id ORDER BY candle_time DESC LIMIT 1) predictedFinal,
  (SELECT close FROM forecast_actual_candles a WHERE a.forecast_id=f.id ORDER BY candle_time DESC LIMIT 1) actualFinal
- FROM forecasts f ORDER BY created_at DESC LIMIT 500`).map((f):Record<string,any>=>({...f,createdAt:f.created_at,startPrice:f.start_price,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,lastConfirmedCandle:f.last_confirmed_candle,metadata:JSON.parse(String(f.metadata)),evaluation:f.evaluation?JSON.parse(String(f.evaluation)):null}));}
+ FROM forecasts f ORDER BY created_at DESC LIMIT 500`).map((row):Record<string,any>=>{const {reference_snapshot,...f}=row;return {...f,createdAt:f.created_at,startPrice:f.start_price,forecastStart:f.forecast_start,forecastEnd:f.forecast_end,lastConfirmedCandle:f.last_confirmed_candle,metadata:JSON.parse(String(f.metadata)),evaluation:f.evaluation?JSON.parse(String(f.evaluation)):null};});}
 export function forecastSummary(){const counts=get<Record<string,any>>("SELECT COUNT(*) total,SUM(CASE WHEN status='COMPLETED' THEN 1 ELSE 0 END) completed,SUM(CASE WHEN status NOT IN ('COMPLETED','FAILED','CANCELLED') THEN 1 ELSE 0 END) monitoring FROM forecasts");const done=all<{evaluation:string|null}>("SELECT evaluation FROM forecasts WHERE status='COMPLETED' AND evaluation IS NOT NULL");return {total:Number(counts?.total||0),completed:Number(counts?.completed||0),monitoring:Number(counts?.monitoring||0),directionalCorrect:done.filter(f=>{try{return JSON.parse(String(f.evaluation)).direction==='CORRECT'}catch{return false;}}).length};}
