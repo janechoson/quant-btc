@@ -1,9 +1,119 @@
+<template>
+  <div ref="host" class="comparison-chart" />
+  <label class="replay-control"
+    >Phát lại nến thực
+    <input
+      v-model.number="replay"
+      type="range"
+      min="0"
+      :max="forecast.actualCandles?.length || 0"
+    /><span>{{ replay }} / {{ forecast.horizon }}</span></label
+  >
+</template>
+
 <script setup lang="ts">
-import {computed,ref,onMounted,onBeforeUnmount,watch} from 'vue';import {createChart,type IChartApi,type ISeriesApi,type Time} from 'lightweight-charts';import type {Forecast} from '../../types';
-const props=defineProps<{forecast:Forecast}>();const host=ref<HTMLDivElement>(),replay=ref(props.forecast.actualCandles?.length||0);let chart:IChartApi|undefined,actual:ISeriesApi<'Candlestick'>|undefined,predicted:ISeriesApi<'Candlestick'>|undefined,observer:ResizeObserver|undefined,initialized=false;
-const context=computed(()=>props.forecast.inputCandles.slice(-60).map(c=>({time:c.time as Time,open:c.open,high:c.high,low:c.low,close:c.close})));
-function draw(){if(!actual||!predicted||!chart)return;const rows=props.forecast.actualCandles||[];actual.setData([...context.value,...rows.slice(0,replay.value).map(c=>({...c,time:c.time as Time}))]);predicted.setData((props.forecast.predictedCandles||[]).map(c=>({...c,time:c.time as Time})));if(!initialized){const count=context.value.length;chart.timeScale().setVisibleLogicalRange({from:Math.max(0,count-60),to:count+props.forecast.horizon+4});initialized=true;}}
-onMounted(()=>{if(!host.value)return;chart=createChart(host.value,{height:340,layout:{background:{color:'#FBF8F0'},textColor:'#675E50'},grid:{vertLines:{color:'#E2D8C6'},horzLines:{color:'#E2D8C6'}},timeScale:{timeVisible:true,rightOffset:4}});actual=chart.addCandlestickSeries({upColor:'#177653',downColor:'#A43C34',borderVisible:false,wickUpColor:'#177653',wickDownColor:'#A43C34'});predicted=chart.addCandlestickSeries({upColor:'rgba(23,118,83,.58)',downColor:'rgba(164,60,52,.58)',borderUpColor:'rgba(23,118,83,.82)',borderDownColor:'rgba(164,60,52,.82)',wickUpColor:'rgba(23,118,83,.9)',wickDownColor:'rgba(164,60,52,.9)'});observer=new ResizeObserver(e=>chart?.applyOptions({width:e[0]?.contentRect.width||0}));observer.observe(host.value);draw();});
-watch(()=>[props.forecast.actualCandles,props.forecast.predictedCandles,replay.value],draw);onBeforeUnmount(()=>{observer?.disconnect();chart?.remove();});
+import {
+  computed,
+  ref,
+  onMounted,
+  onBeforeUnmount,
+  watch,
+} from 'vue';
+import {
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  type Time,
+} from 'lightweight-charts';
+import type { Forecast } from '../../types';
+const props = defineProps<{ forecast: Forecast }>();
+const host = ref<HTMLDivElement>(),
+  replay = ref(props.forecast.actualCandles?.length || 0);
+let chart: IChartApi | undefined,
+  actual: ISeriesApi<'Candlestick'> | undefined,
+  predicted: ISeriesApi<'Candlestick'> | undefined,
+  observer: ResizeObserver | undefined,
+  initialized = false;
+const context = computed(() =>
+  props.forecast.inputCandles.slice(-60).map((c) => ({
+    time: c.time as Time,
+    open: c.open,
+    high: c.high,
+    low: c.low,
+    close: c.close,
+  })),
+);
+function draw() {
+  if (!actual || !predicted || !chart) return;
+  const rows = props.forecast.actualCandles || [];
+  actual.setData([
+    ...context.value,
+    ...rows
+      .slice(0, replay.value)
+      .map((c) => ({ ...c, time: c.time as Time })),
+  ]);
+  predicted.setData(
+    (props.forecast.predictedCandles || []).map((c) => ({
+      ...c,
+      time: c.time as Time,
+    })),
+  );
+  if (!initialized) {
+    const count = context.value.length;
+    chart.timeScale().setVisibleLogicalRange({
+      from: Math.max(0, count - 60),
+      to: count + props.forecast.horizon + 4,
+    });
+    initialized = true;
+  }
+}
+onMounted(() => {
+  if (!host.value) return;
+  chart = createChart(host.value, {
+    height: 340,
+    layout: {
+      background: { color: '#FBF8F0' },
+      textColor: '#675E50',
+    },
+    grid: {
+      vertLines: { color: '#E2D8C6' },
+      horzLines: { color: '#E2D8C6' },
+    },
+    timeScale: { timeVisible: true, rightOffset: 4 },
+  });
+  actual = chart.addCandlestickSeries({
+    upColor: '#177653',
+    downColor: '#A43C34',
+    borderVisible: false,
+    wickUpColor: '#177653',
+    wickDownColor: '#A43C34',
+  });
+  predicted = chart.addCandlestickSeries({
+    upColor: 'rgba(23,118,83,.58)',
+    downColor: 'rgba(164,60,52,.58)',
+    borderUpColor: 'rgba(23,118,83,.82)',
+    borderDownColor: 'rgba(164,60,52,.82)',
+    wickUpColor: 'rgba(23,118,83,.9)',
+    wickDownColor: 'rgba(164,60,52,.9)',
+  });
+  observer = new ResizeObserver((e) =>
+    chart?.applyOptions({
+      width: e[0]?.contentRect.width || 0,
+    }),
+  );
+  observer.observe(host.value);
+  draw();
+});
+watch(
+  () => [
+    props.forecast.actualCandles,
+    props.forecast.predictedCandles,
+    replay.value,
+  ],
+  draw,
+);
+onBeforeUnmount(() => {
+  observer?.disconnect();
+  chart?.remove();
+});
 </script>
-<template><div ref="host" class="comparison-chart"/><label class="replay-control">Phát lại nến thực <input v-model.number="replay" type="range" min="0" :max="forecast.actualCandles?.length||0"><span>{{replay}} / {{forecast.horizon}}</span></label></template>

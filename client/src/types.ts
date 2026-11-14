@@ -1,6 +1,111 @@
-export type Timeframe='1H'|'4H'|'1D';
-export interface Candle {time:number;open:number;high:number;low:number;close:number;volume:number}
-export interface ForecastReferenceChart {exampleId:string;datasetId:string|null;timeframe:Timeframe;referenceStartTime:number;referenceEndTime:number;matchDistance:number;matchWeight:number;inputCandles:Candle[];continuationCandles:Candle[]}
-export interface Forecast {id:string;timeframe:Timeframe;horizon:number;created_at:string;createdAt?:string;forecastStart:number;start_price:number;signal:string;status:string;progress:number;predictedFinal?:number;actualFinal?:number;inputCandles:Candle[];predictedCandles:Candle[];actualCandles:Candle[];referenceChart?:ForecastReferenceChart|null;uncertainty:{time:number;low:number;median?:number;high:number}[];metadata:{provider:string;version:string;neighbors:number;historyExamples?:number;inputWindow?:number;horizon?:number;quantiles?:{method:string;lower:number;median:number;upper:number;sampleCount:number;calibrated:boolean};confidenceLabel?:string};entry?:{low:number;high:number}|null;takeProfit?:number|null;stopLoss?:number|null;evaluation?:{direction:string;priceError:number;pathScore:number;actualFinal:number;predictedFinal:number}|null}
-export interface Dataset {id:string;name:string;symbol:string;timeframe:Timeframe;start_time:number;end_time:number;candle_count:number;example_count:number;status:string;created_at:string}
-export interface PageResult<T>{items:T[];total:number;page:number;limit:number;pages:number}
+export type Timeframe = '1H' | '4H' | '1D';
+export interface Candle {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+export interface ForecastReferenceExplanation {
+  algorithmVersion: string;
+  totalCandidates: number;
+  eligibleCandidates: number;
+  selectedMatches: number;
+  referenceRank: number;
+  contributionRank: number;
+  rankingMethod: string;
+  weightingMethod: string;
+  featureBreakdown: Array<{
+    name: string;
+    distanceContribution: number;
+  }>;
+  nextMatch: {
+    rank: number;
+    matchDistance: number;
+    contributionWeight: number;
+  } | null;
+  selectionReason: string;
+}
+export interface ForecastReferenceChart {
+  exampleId: string;
+  datasetId: string | null;
+  timeframe: Timeframe;
+  referenceStartTime: number;
+  referenceEndTime: number;
+  matchDistance: number;
+  matchWeight: number;
+  inputCandles: Candle[];
+  continuationCandles: Candle[];
+  explanation?: ForecastReferenceExplanation;
+}
+export interface Forecast {
+  id: string;
+  timeframe: Timeframe;
+  horizon: number;
+  created_at: string;
+  createdAt?: string;
+  forecastStart: number;
+  start_price: number;
+  signal: string;
+  status: string;
+  progress: number;
+  predictedFinal?: number;
+  actualFinal?: number;
+  inputCandles: Candle[];
+  predictedCandles: Candle[];
+  actualCandles: Candle[];
+  referenceChart?: ForecastReferenceChart | null;
+  uncertainty: {
+    time: number;
+    low: number;
+    median?: number;
+    high: number;
+  }[];
+  metadata: {
+    provider: string;
+    version: string;
+    neighbors: number;
+    historyExamples?: number;
+    inputWindow?: number;
+    horizon?: number;
+    quantiles?: {
+      method: string;
+      lower: number;
+      median: number;
+      upper: number;
+      sampleCount: number;
+      calibrated: boolean;
+    };
+    confidenceLabel?: string;
+  };
+  entry?: { low: number; high: number } | null;
+  takeProfit?: number | null;
+  stopLoss?: number | null;
+  evaluation?: {
+    direction: string;
+    priceError: number;
+    pathScore: number;
+    actualFinal: number;
+    predictedFinal: number;
+  } | null;
+}
+export interface Dataset {
+  id: string;
+  name: string;
+  symbol: string;
+  timeframe: Timeframe;
+  start_time: number;
+  end_time: number;
+  candle_count: number;
+  example_count: number;
+  status: string;
+  created_at: string;
+}
+export interface PageResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  pages: number;
+}

@@ -1,2 +1,69 @@
-import {defineStore} from 'pinia';import {ref} from 'vue';import {api} from '../services/api';import type {Candle,Dataset,PageResult,Timeframe} from '../types';
-export const useLearningStore=defineStore('learning',()=>{const datasets=ref<Dataset[]>([]),page=ref(1),pages=ref(1),loading=ref(false),error=ref('');async function load(next=page.value){loading.value=true;try{const result=await api<PageResult<Dataset>>(`/api/learning/datasets?page=${next}&limit=20`);datasets.value=result.items;page.value=result.page;pages.value=result.pages;}catch(e){error.value=e instanceof Error?e.message:'Không tải được datasets'}finally{loading.value=false}}async function add(input:{timeframe:Timeframe;start:string;end:string;name?:string}){await api('/api/learning/datasets',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(input)});await load(1)}async function remove(id:string){await api(`/api/learning/datasets/${id}`,{method:'DELETE'});await load()}async function view(id:string){return api<{dataset:Dataset;candles:Candle[]}>(`/api/learning/datasets/${id}/candles`)}return{datasets,page,pages,loading,error,load,add,remove,view}});
+import { defineStore } from 'pinia';
+import { ref } from 'vue';
+import { api } from '../services/api';
+import type {
+  Candle,
+  Dataset,
+  PageResult,
+  Timeframe,
+} from '../types';
+export const useLearningStore = defineStore('learning', () => {
+  const datasets = ref<Dataset[]>([]),
+    page = ref(1),
+    pages = ref(1),
+    loading = ref(false),
+    error = ref('');
+  async function load(next = page.value) {
+    loading.value = true;
+    try {
+      const result = await api<PageResult<Dataset>>(
+        `/api/learning/datasets?page=${next}&limit=20`,
+      );
+      datasets.value = result.items;
+      page.value = result.page;
+      pages.value = result.pages;
+    } catch (e) {
+      error.value =
+        e instanceof Error
+          ? e.message
+          : 'Không tải được datasets';
+    } finally {
+      loading.value = false;
+    }
+  }
+  async function add(input: {
+    timeframe: Timeframe;
+    start: string;
+    end: string;
+    name?: string;
+  }) {
+    await api('/api/learning/datasets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    await load(1);
+  }
+  async function remove(id: string) {
+    await api(`/api/learning/datasets/${id}`, {
+      method: 'DELETE',
+    });
+    await load();
+  }
+  async function view(id: string) {
+    return api<{ dataset: Dataset; candles: Candle[] }>(
+      `/api/learning/datasets/${id}/candles`,
+    );
+  }
+  return {
+    datasets,
+    page,
+    pages,
+    loading,
+    error,
+    load,
+    add,
+    remove,
+    view,
+  };
+});
