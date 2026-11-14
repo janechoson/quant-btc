@@ -1,23 +1,49 @@
-# BTC AI Trader · Pattern Forecast Terminal
+# Quant BTC
 
-Local signal-only BTC/USDT terminal. Uses Binance public Spot candles and Lightweight Charts; no trading credentials or order execution are used.
+BTC/USDT Spot pattern forecast terminal. Frontend is Vue 3 + TypeScript + Vite + Pinia + Vue Router + Tailwind CSS; backend is a single Node.js/TypeScript HTTP application. Binance public REST supplies market candles. No order execution or external AI provider is used.
 
-## Run
+## Requirements and commands
 
-Requires Node.js 20 or newer.
+- Node.js 20.19 or newer
+- npm
 
 ```powershell
+npm install
+npm run dev
+npm run build
 npm start
+npm test
 ```
 
-Open `http://localhost:4173`. Forecast and learning records are stored under `data/` as JSON. The server checks unfinished forecasts once per minute and resumes them when restarted. The chart library and web fonts load from public CDNs.
+`npm run dev` starts the API at `http://localhost:4173` and Vite at `http://localhost:5173`; Vite proxies `/api` requests to the API. Run `npm run build` before `npm start`. Production serves only `dist/client`; source, migration files, SQLite and JSON backups are not in the static root.
 
-## Current scope
+## Structure
 
-- Trading terminal with Binance H1/H4/D1 candles, volume, forecast overlay and signal levels.
-- User-selected historical ranges create rolling, timeframe-separated normalized learning examples.
-- Statistical pattern forecast provider with immutable forecast snapshots and idempotency keys.
-- Server-side reconciliation of closed candles, partial progress and a prediction history comparison view with replay.
-- No live trading. Forecast signals and displayed scores are informational and are not calibrated probabilities.
+```text
+client/src/       Vue app, router, Pinia stores, chart components, views
+server/src/       HTTP API, SQLite, repositories/services and JSON migration
+tests/            SQLite migration and persistence regression tests
+data/             Local quant-btc.db and preserved legacy JSON backups
+dist/             Generated production client and server output
+```
 
-The initial version does not yet include the full walk-forward backtest suite, configurable settings persistence, multi-stage forecast metric breakdown, or complete TP/SL ambiguity evaluator described in the supplied master prompt. The dashboard labels unavailable results rather than fabricating them.
+## SQLite and legacy import
+
+The database is `data/quant-btc.db`. It contains `market_candles`, `learning_datasets`, `learning_examples`, `forecasts`, `forecast_candles`, `forecast_actual_candles`, `forecast_evaluations`, and migration metadata. Foreign keys and unique indexes protect dataset ownership, candle deduplication, idempotency keys, and timestamp alignment. Writes use SQL transactions and atomically replace the database file after commit.
+
+`sql.js` runs SQLite/WASM without requiring a native compiler on Windows. This VFS does not support WAL, so the database is kept in-process and flushed atomically. Do not run multiple backend processes against the same database file.
+
+On first startup, the server checks `data/datasets.json` and `data/forecasts.json`. If present, it creates timestamped `.backup-*` copies, imports valid records in an idempotent transaction, and records malformed rows in `migration_reports`. Original JSON files are never deleted. You can also run `npm run migrate:json` explicitly. If migration fails, retain the original files and inspect the error/report before retrying.
+
+Learning datasets are independent and paginated (20 per page by default, up to 100 per request). Their normalized examples are fetched in bounded pages; shared OHLCV candles are deduplicated by exchange, symbol, timeframe and open timestamp. Dataset deletion cascades only to its examples and leaves shared market data and forecast history untouched.
+
+## Preserved application behavior
+
+- BTC/USDT H1/H4/D1 chart with volume and translucent future candles.
+- Statistical `PatternForecastProvider` version `pattern-knn-v1`, using bounded historical example retrieval from SQLite.
+- User-selected Chart Learning ranges and normalized rolling examples.
+- Immutable prediction candle snapshots, idempotency keys and backend monitoring that resumes on restart.
+- Actual candle storage, Prediction History comparison chart and progressive replay.
+- Dataset view, candle chart preview, examples, pagination and deletion.
+
+Current metric definitions and available evaluation fields remain intentionally modest; no confidence value is presented as a calibrated probability. Backtesting and Settings remain the same basic MVP surfaces. Kronos, external AI APIs and live trading are not included.
