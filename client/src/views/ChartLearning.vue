@@ -21,6 +21,7 @@
       <div class="form-grid">
         <label
           >Khung thời gian<select v-model="timeframe">
+            <option>15M</option>
             <option>1H</option>
             <option>4H</option>
             <option>1D</option>
@@ -149,10 +150,15 @@ import { useRoute } from 'vue-router';
 import { useLearningStore } from '../stores/learning';
 import TradingChart from '../components/chart/TradingChart.vue';
 import { api } from '../services/api';
-import type { Candle, Dataset, PageResult } from '../types';
+import type {
+  Candle,
+  Dataset,
+  PageResult,
+  Timeframe,
+} from '../types';
 const route = useRoute(),
   store = useLearningStore(),
-  timeframe = ref<'1H' | '4H' | '1D'>('1H'),
+  timeframe = ref<Timeframe>('1H'),
   start = ref('2024-01-01'),
   end = ref(new Date().toISOString().slice(0, 10)),
   name = ref(''),

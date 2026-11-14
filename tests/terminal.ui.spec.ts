@@ -145,7 +145,7 @@ async function installMarketFixtures(page: any) {
       interval =
         url.searchParams
           .get('streams')
-          ?.match(/kline_(1h|4h|1d)/)?.[1] || '1h';
+          ?.match(/kline_(15m|1h|4h|1d)/)?.[1] || '1h';
       return true;
     },
     (ws) => {
@@ -462,6 +462,60 @@ test('Trading Terminal desktop layout, chart and forecast overlay', async ({
   ).toBeVisible();
 });
 
+test('timeframe switches update Vietnamese durations and keep the chosen horizon', async ({
+  page,
+}) => {
+  await installMarketFixtures(page);
+  await page.goto('/');
+  const selector = page.locator('.horizon-select select');
+  await expect(selector).toHaveValue('10');
+
+  await page.getByRole('button', { name: '15M' }).click();
+  await expect(
+    page.getByRole('option', {
+      name: '10 nến (~2 giờ 30 phút)',
+    }),
+  ).toBeAttached();
+  await expect(
+    page.getByRole('option', {
+      name: '50 nến (~12 giờ 30 phút)',
+    }),
+  ).toBeAttached();
+  await selector.selectOption('50');
+
+  await page.getByRole('button', { name: '4H' }).click();
+  await expect(selector).toHaveValue('50');
+  await expect(
+    page.getByRole('option', { name: '50 nến (~200 giờ)' }),
+  ).toBeAttached();
+  await page.getByRole('button', { name: '1D' }).click();
+  await expect(selector).toHaveValue('50');
+  await expect(
+    page.getByRole('option', { name: '50 nến (~50 ngày)' }),
+  ).toBeAttached();
+
+  let payload: Record<string, unknown> | undefined;
+  await page.route('**/api/forecasts', async (route) => {
+    if (route.request().method() !== 'POST')
+      return route.fulfill({ json: [] });
+    payload = route.request().postDataJSON();
+    return route.fulfill({
+      json: {
+        ...forecastFixture(),
+        timeframe: payload.timeframe,
+        horizon: payload.horizon,
+      },
+    });
+  });
+  await page.getByRole('button', { name: /Dự đoán/ }).click();
+  await expect
+    .poll(() => payload)
+    .toMatchObject({
+      timeframe: '1D',
+      horizon: 50,
+    });
+});
+
 test('Sidebar routes open the learning and history views', async ({
   page,
 }) => {
@@ -501,6 +555,7 @@ test('Sidebar routes open the learning and history views', async ({
   await expect(
     page.getByRole('heading', { name: 'Chart Learning' }),
   ).toBeVisible();
+  await expect(page.locator('select')).toContainText('15M');
   await page
     .getByRole('link', { name: /Lịch sử dự đoán/ })
     .click();

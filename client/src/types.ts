@@ -1,4 +1,4 @@
-export type Timeframe = '1H' | '4H' | '1D';
+export type Timeframe = '15M' | '1H' | '4H' | '1D';
 export interface Candle {
   time: number;
   open: number;

@@ -7,6 +7,11 @@ import {
   run,
   transaction,
 } from './database/connection.js';
+import {
+  timeframeMs,
+  validTimeframe,
+  type Timeframe,
+} from './services/binance.js';
 
 const legacyDir = path.resolve(
   process.env.QUANT_BTC_LEGACY_DATA_DIR ||
@@ -77,7 +82,7 @@ export async function migrateLegacyJson() {
         const d = raw as Record<string, any>;
         if (
           !d.id ||
-          !['1H', '4H', '1D'].includes(d.timeframe) ||
+          !validTimeframe(d.timeframe) ||
           !Array.isArray(d.examples)
         )
           throw Error('missing id/timeframe/examples');
@@ -103,12 +108,8 @@ export async function migrateLegacyJson() {
             iso(d.createdAt),
           ],
         );
-        const step = (
-          { '1H': 3600, '4H': 14400, '1D': 86400 } as Record<
-            string,
-            number
-          >
-        )[d.timeframe];
+        const step =
+          timeframeMs(d.timeframe as Timeframe) / 1000;
         for (const ex of d.examples) {
           const t = Number(ex.time);
           if (
@@ -146,7 +147,7 @@ export async function migrateLegacyJson() {
         if (
           !f.id ||
           !Array.isArray(f.predictedCandles) ||
-          !['1H', '4H', '1D'].includes(f.timeframe)
+          !validTimeframe(f.timeframe)
         )
           throw Error('missing id/timeframe/predictedCandles');
         const levels = {

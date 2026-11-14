@@ -1,4 +1,4 @@
-export type Timeframe = '1H' | '4H' | '1D';
+export type Timeframe = '15M' | '1H' | '4H' | '1D';
 export interface Candle {
   time: number;
   openTime: number;
@@ -19,19 +19,21 @@ export interface BinanceTicker24h {
   volume24h: number;
   eventTime: number;
 }
-const intervals: Record<
+export const TIMEFRAME_CONFIG: Record<
   Timeframe,
-  { ms: number; api: string }
+  { milliseconds: number; binanceInterval: string }
 > = {
-  '1H': { ms: 3600000, api: '1h' },
-  '4H': { ms: 14400000, api: '4h' },
-  '1D': { ms: 86400000, api: '1d' },
+  '15M': { milliseconds: 900_000, binanceInterval: '15m' },
+  '1H': { milliseconds: 3_600_000, binanceInterval: '1h' },
+  '4H': { milliseconds: 14_400_000, binanceInterval: '4h' },
+  '1D': { milliseconds: 86_400_000, binanceInterval: '1d' },
 };
-export const timeframeMs = (tf: Timeframe) => intervals[tf].ms;
+export const timeframeMs = (tf: Timeframe) =>
+  TIMEFRAME_CONFIG[tf].milliseconds;
 export function validTimeframe(
   value: string,
 ): value is Timeframe {
-  return value in intervals;
+  return Object.hasOwn(TIMEFRAME_CONFIG, value);
 }
 export async function fetchCandles(
   symbol: string,
@@ -42,7 +44,10 @@ export async function fetchCandles(
 ): Promise<Candle[]> {
   const u = new URL('https://api.binance.com/api/v3/klines');
   u.searchParams.set('symbol', symbol);
-  u.searchParams.set('interval', intervals[tf].api);
+  u.searchParams.set(
+    'interval',
+    TIMEFRAME_CONFIG[tf].binanceInterval,
+  );
   u.searchParams.set(
     'limit',
     String(Math.max(1, Math.min(1000, Math.floor(limit)))),

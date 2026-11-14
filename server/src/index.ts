@@ -30,6 +30,7 @@ import {
   listForecasts,
   monitorForecasts,
 } from './services/pattern-forecast.js';
+import { isSupportedForecastHorizon } from './services/forecast-engine.js';
 
 const prodRoot = path.join(projectRoot, 'dist/client'),
   port = Number(process.env.PORT) || 4173;
@@ -192,14 +193,15 @@ async function api(
   if (u.pathname === '/api/forecasts' && m === 'POST') {
     const body = await readBody(req),
       tf = body.timeframe || '1H',
-      horizon = Number(body.horizon) || 10;
+      horizon =
+        body.horizon === undefined ? 10 : Number(body.horizon);
     if (
       !validTimeframe(tf) ||
-      ![5, 10, 20, 30].includes(horizon)
+      !isSupportedForecastHorizon(horizon)
     )
       return send(res, 400, {
         error:
-          'Khung thời gian không hợp lệ; horizon phải là 5, 10, 20 hoặc 30 nến',
+          'Khung thời gian không hợp lệ; horizon phải là 5, 10, 20, 30, 40 hoặc 50 nến',
       });
     const key =
       String(req.headers['idempotency-key'] || '').slice(

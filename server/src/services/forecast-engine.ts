@@ -48,6 +48,19 @@ export type HistoricalExample = {
 const INPUT_WINDOW = 24;
 const MIN_EXAMPLES = 8;
 const NEIGHBOR_COUNT = 8;
+export const SUPPORTED_FORECAST_HORIZONS = [
+  5, 10, 20, 30, 40, 50,
+] as const;
+export function isSupportedForecastHorizon(
+  value: number,
+): value is (typeof SUPPORTED_FORECAST_HORIZONS)[number] {
+  return (
+    Number.isInteger(value) &&
+    SUPPORTED_FORECAST_HORIZONS.includes(
+      value as (typeof SUPPORTED_FORECAST_HORIZONS)[number],
+    )
+  );
+}
 const FEATURE_CHANNELS = [
   'Lợi suất đóng cửa',
   'Thân nến',
@@ -257,8 +270,10 @@ export function forecastPath(
   timeframe: Timeframe,
   examples: HistoricalExample[],
 ) {
-  if (![5, 10, 20, 30].includes(horizon))
-    throw new Error('Chọn horizon 5, 10, 20 hoặc 30 nến.');
+  if (!isSupportedForecastHorizon(horizon))
+    throw new Error(
+      'Chọn horizon 5, 10, 20, 30, 40 hoặc 50 nến.',
+    );
   if (examples.length < MIN_EXAMPLES)
     throw new Error(
       `Chưa đủ dữ liệu mẫu cho dự báo ${horizon} nến. Cần ít nhất ${MIN_EXAMPLES} đường đi lịch sử cùng khung và horizon; hiện có ${examples.length}.`,

@@ -56,7 +56,7 @@ describe('SQLite migration and repository invariants', () => {
         {
           id: datasetId,
           symbol: 'BTC/USDT',
-          timeframe: '1H',
+          timeframe: '15M',
           start: '2024-01-01',
           end: '2024-01-02',
           candleCount: 35,
@@ -78,12 +78,12 @@ describe('SQLite migration and repository invariants', () => {
         {
           id,
           symbol: 'BTCUSDT',
-          timeframe: '1H',
+          timeframe: '15M',
           horizon: 1,
           createdAt: '2024-01-04T00:00:00Z',
           lastConfirmedCandle: 1704153600,
-          forecastStart: 1704157200,
-          forecastEnd: 1704160800,
+          forecastStart: 1704154500,
+          forecastEnd: 1704154500,
           startPrice: 42000,
           status: 'COMPLETED',
           progress: 1,
@@ -92,7 +92,7 @@ describe('SQLite migration and repository invariants', () => {
           inputCandles: [],
           predictedCandles: [
             {
-              time: 1704157200,
+              time: 1704154500,
               open: 42000,
               high: 42500,
               low: 41900,
@@ -101,7 +101,7 @@ describe('SQLite migration and repository invariants', () => {
           ],
           actualCandles: [
             {
-              time: 1704157200,
+              time: 1704154500,
               open: 42000,
               high: 42600,
               low: 41900,
@@ -131,6 +131,17 @@ describe('SQLite migration and repository invariants', () => {
         datasetId,
       ])?.id,
     ).toBe(datasetId);
+    expect(
+      dbmod.get('SELECT timeframe FROM forecasts WHERE id=?', [
+        id,
+      ])?.timeframe,
+    ).toBe('15M');
+    expect(
+      dbmod.get(
+        'SELECT target_end_time FROM learning_examples WHERE dataset_id=?',
+        [datasetId],
+      )?.target_end_time,
+    ).toBe(1704153600 + 10 * 900);
     expect(
       Number(
         dbmod.get(
@@ -556,5 +567,254 @@ describe('SQLite migration and repository invariants', () => {
         )
       ).forecastDetail(forecast.id)?.referenceChart,
     ).toEqual(saved);
+  });
+
+  it('persists a 15M horizon-50 forecast and its exact historical reference', async () => {
+    const timeframe = '15M',
+      step = 900,
+      base =
+        Math.floor(Date.now() / (step * 1000)) * step -
+        270 * step,
+      historyCount = 120,
+      datasetId = 'fifteen-minute-horizon-50';
+    let close = 40_000;
+    const rows = Array.from(
+      { length: historyCount },
+      (_, i) => {
+        const open = close;
+        close =
+          open *
+          (1 +
+            Math.sin(i * 0.41) * 0.002 +
+            (i % 11 === 0 ? -0.003 : 0.0005));
+        return {
+          time: base + i * step,
+          open,
+          high: Math.max(open, close) * 1.001,
+          low: Math.min(open, close) * 0.999,
+          close,
+          volume: 10 + (i % 7),
+        };
+      },
+    );
+    const liveRows = Array.from({ length: 150 }, (_, i) => {
+      const time = base + (historyCount + i) * step,
+        open = close;
+      close =
+        open *
+        (1 +
+          Math.sin((historyCount + i) * 0.41) * 0.002 +
+          (i % 11 === 0 ? -0.003 : 0.0005));
+      return [
+        time * 1000,
+        String(open),
+        String(Math.max(open, close) * 1.001),
+        String(Math.min(open, close) * 0.999),
+        String(close),
+        '15',
+        (time + step) * 1000 - 1,
+      ];
+    });
+
+    await dbmod.transaction(() => {
+      dbmod.run(
+        'INSERT INTO learning_datasets(id,name,symbol,timeframe,start_time,end_time,candle_count,example_count,status,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+        [
+          datasetId,
+          '15M horizon 50',
+          'BTC/USDT',
+          timeframe,
+          rows[0]!.time,
+          rows.at(-1)!.time,
+          rows.length,
+          rows.length - 24 - 10 + 1,
+          'READY',
+          '2026-01-01',
+          '2026-01-01',
+        ],
+      );
+      for (const candle of rows)
+        dbmod.run(
+          'INSERT INTO market_candles(exchange,symbol,timeframe,open_time,close_time,open,high,low,close,volume) VALUES(?,?,?,?,?,?,?,?,?,?)',
+          [
+            'Binance',
+            'BTC/USDT',
+            timeframe,
+            candle.time,
+            (candle.time + step) * 1000 - 1,
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close,
+            candle.volume,
+          ],
+        );
+    });
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(liveRows), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    let forecast: any;
+    try {
+      forecast = await (
+        await import(
+          '../server/src/services/pattern-forecast.js'
+        )
+      ).createForecast('15M', 50, 'fifteen-minute-horizon-50');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(forecast).toMatchObject({
+      timeframe: '15M',
+      horizon: 50,
+      predictedCandles: expect.any(Array),
+    });
+    expect(forecast.predictedCandles).toHaveLength(50);
+    expect(forecast.uncertainty).toHaveLength(50);
+    expect(forecast.referenceChart.inputCandles).toHaveLength(
+      24,
+    );
+    expect(
+      forecast.referenceChart.continuationCandles,
+    ).toHaveLength(50);
+    expect(
+      forecast.predictedCandles[1].time -
+        forecast.predictedCandles[0].time,
+    ).toBe(step);
+    expect(
+      Number(
+        dbmod.get(
+          'SELECT COUNT(*) n FROM forecast_candles WHERE forecast_id=?',
+          [forecast.id],
+        )?.n,
+      ),
+    ).toBe(50);
+    expect(
+      dbmod.get(
+        'SELECT timeframe,horizon FROM forecasts WHERE id=?',
+        [forecast.id],
+      ),
+    ).toMatchObject({ timeframe: '15M', horizon: 50 });
+  });
+
+  it('keeps a horizon-50 forecast monitoring after 30 actual candles', async () => {
+    const id = 'monitor-horizon-50',
+      timeframe = '15M',
+      step = 900,
+      first =
+        Math.floor(Date.now() / (step * 1000)) * step -
+        100 * step,
+      actualRows = Array.from({ length: 50 }, (_, i) => {
+        const time = first + i * step,
+          price = 60_000 + i * 10;
+        return [
+          time * 1000,
+          String(price),
+          String(price + 20),
+          String(price - 20),
+          String(price + 5),
+          '10',
+          (time + step) * 1000 - 1,
+        ];
+      });
+    const forecasts = Array.from({ length: 50 }, (_, i) => {
+      const time = first + i * step,
+        open = 60_000 + i * 10,
+        close = open + 5;
+      return {
+        time,
+        open,
+        high: open + 20,
+        low: open - 20,
+        close,
+      };
+    });
+    await dbmod.transaction(() => {
+      dbmod.run(
+        "UPDATE forecasts SET status='FAILED' WHERE status NOT IN ('COMPLETED','FAILED','CANCELLED')",
+      );
+      dbmod.run(
+        'INSERT INTO forecasts(id,symbol,timeframe,horizon,created_at,last_confirmed_candle,forecast_start,forecast_end,start_price,status,progress,signal,algorithm_version,input_snapshot,metadata,signal_levels) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+        [
+          id,
+          'BTCUSDT',
+          timeframe,
+          50,
+          new Date().toISOString(),
+          first - step,
+          first,
+          first + 49 * step,
+          60_000,
+          'MONITORING',
+          0,
+          'NO TRADE',
+          'test-v1',
+          '[]',
+          JSON.stringify({ uncertainty: [] }),
+          '{}',
+        ],
+      );
+      for (const candle of forecasts)
+        dbmod.run(
+          'INSERT INTO forecast_candles(forecast_id,candle_time,open,high,low,close) VALUES(?,?,?,?,?,?)',
+          [
+            id,
+            candle.time,
+            candle.open,
+            candle.high,
+            candle.low,
+            candle.close,
+          ],
+        );
+    });
+
+    const originalFetch = globalThis.fetch;
+    let available = 30;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify(actualRows.slice(0, available)),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        },
+      );
+    try {
+      const { monitorForecasts } = await import(
+        '../server/src/services/pattern-forecast.js'
+      );
+      await monitorForecasts();
+      expect(
+        dbmod.get(
+          'SELECT status,progress FROM forecasts WHERE id=?',
+          [id],
+        ),
+      ).toMatchObject({
+        status: 'PARTIALLY_EVALUATED',
+        progress: 30,
+      });
+
+      available = 50;
+      await monitorForecasts();
+      expect(
+        dbmod.get(
+          'SELECT status,progress FROM forecasts WHERE id=?',
+          [id],
+        ),
+      ).toMatchObject({ status: 'COMPLETED', progress: 50 });
+      expect(
+        Number(
+          dbmod.get(
+            'SELECT COUNT(*) n FROM forecast_actual_candles WHERE forecast_id=?',
+            [id],
+          )?.n,
+        ),
+      ).toBe(50);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

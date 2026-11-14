@@ -34,6 +34,7 @@ type SocketLike = Pick<
 type SocketFactory = (url: string) => SocketLike;
 
 const intervals: Record<Timeframe, string> = {
+  '15M': '15m',
   '1H': '1h',
   '4H': '4h',
   '1D': '1d',

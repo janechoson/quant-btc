@@ -19,6 +19,7 @@ import {
 import {
   buildHistoricalExamples,
   forecastPath,
+  isSupportedForecastHorizon,
 } from './forecast-engine.js';
 import type {
   ForecastCandle,
@@ -220,8 +221,10 @@ export async function createForecast(
   horizon: number,
   idempotencyKey?: string,
 ) {
-  if (![5, 10, 20, 30].includes(horizon))
-    throw new Error('Chọn horizon 5, 10, 20 hoặc 30 nến.');
+  if (!isSupportedForecastHorizon(horizon))
+    throw new Error(
+      'Chọn horizon 5, 10, 20, 30, 40 hoặc 50 nến.',
+    );
   if (idempotencyKey) {
     const existing = get<{ id: string }>(
       'SELECT id FROM forecasts WHERE idempotency_key=?',

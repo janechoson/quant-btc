@@ -115,6 +115,29 @@ describe('Binance public market stream', () => {
     expect(closed?.candleClosed).toBe(true);
   });
 
+  it('parses Binance 15-minute live and confirmed candles', () => {
+    const live = parseMarketMessage(
+        kline(2000, 900000, false, '15m'),
+        '15M',
+      ),
+      closed = parseMarketMessage(
+        kline(3000, 900000, true, '15m'),
+        '15M',
+      );
+    expect(live?.candle).toMatchObject({
+      time: 900,
+      close: 67000,
+    });
+    expect(live?.candleClosed).toBe(false);
+    expect(closed?.candleClosed).toBe(true);
+    expect(
+      parseMarketMessage(
+        kline(3000, 900000, true, '1h'),
+        '15M',
+      ),
+    ).toBeNull();
+  });
+
   it('rejects out-of-order events per stream', () => {
     const sockets: FakeSocket[] = [],
       received: number[] = [];
@@ -157,6 +180,29 @@ describe('Binance public market stream', () => {
     manager.setTimeframe('4H');
     expect(sockets[0]!.closed).toBe(true);
     expect(urls[1]).toContain('btcusdt@kline_4h');
+    expect(urls[1]).toContain('btcusdt@ticker');
+    manager.stop();
+  });
+
+  it('switches to the 15-minute stream without dropping the ticker', () => {
+    const urls: string[] = [],
+      sockets: FakeSocket[] = [];
+    const manager = new BinanceMarketStream(
+      '1H',
+      () => {},
+      () => {},
+      (url) => {
+        urls.push(url);
+        const socket = new FakeSocket();
+        sockets.push(socket);
+        return socket;
+      },
+    );
+    manager.start();
+    sockets[0]!.open();
+    manager.setTimeframe('15M');
+    expect(sockets[0]!.closed).toBe(true);
+    expect(urls[1]).toContain('btcusdt@kline_15m');
     expect(urls[1]).toContain('btcusdt@ticker');
     manager.stop();
   });

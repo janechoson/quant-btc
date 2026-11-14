@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildHistoricalExamples,
   forecastPath,
+  isSupportedForecastHorizon,
   normalizedFeatures,
   type HistoricalExample,
 } from '../server/src/services/forecast-engine.js';
@@ -11,6 +12,7 @@ import type {
 } from '../server/src/services/binance.js';
 
 const step: Record<Timeframe, number> = {
+  '15M': 900,
   '1H': 3600,
   '4H': 14400,
   '1D': 86400,
@@ -283,7 +285,7 @@ describe('forecast feature matching and path generation', () => {
     }
   });
 
-  it.each<Timeframe>(['1H', '4H', '1D'])(
+  it.each<Timeframe>(['15M', '1H', '4H', '1D'])(
     'aligns forecast timestamps on %s',
     (timeframe) => {
       const input = series(25, timeframe),
@@ -305,7 +307,7 @@ describe('forecast feature matching and path generation', () => {
     },
   );
 
-  it.each([5, 10, 20, 30])(
+  it.each([5, 10, 20, 30, 40, 50])(
     'supports horizon %i using horizon-specific example paths',
     (horizon) => {
       const input = series(25),
@@ -338,7 +340,84 @@ describe('forecast feature matching and path generation', () => {
         '1H',
         repeatedExamples(input, 15),
       ),
-    ).toThrow(/horizon 5, 10, 20 hoặc 30/);
+    ).toThrow(/horizon 5, 10, 20, 30, 40 hoặc 50/);
+  });
+
+  it.each(
+    (['15M', '1H', '4H', '1D'] as const).flatMap((timeframe) =>
+      ([5, 10, 20, 30, 40, 50] as const).map(
+        (horizon) => [timeframe, horizon] as const,
+      ),
+    ),
+  )(
+    'generates %s forecast candles for %i with valid OHLC',
+    (timeframe, horizon) => {
+      const input = series(25, timeframe),
+        result = forecastPath(
+          input,
+          horizon,
+          timeframe,
+          repeatedExamples(input, horizon),
+        );
+      expect(result.predictedCandles).toHaveLength(horizon);
+      expect(result.uncertainty).toHaveLength(horizon);
+      result.predictedCandles.forEach((candle, index) => {
+        expect(candle.time).toBe(
+          input.at(-1)!.time + (index + 1) * step[timeframe],
+        );
+        expect(candle.low).toBeGreaterThan(0);
+        expect(candle.high).toBeGreaterThanOrEqual(
+          Math.max(candle.open, candle.close),
+        );
+        expect(candle.low).toBeLessThanOrEqual(
+          Math.min(candle.open, candle.close),
+        );
+      });
+    },
+  );
+
+  it('builds an exact 50-candle historical continuation from 74 contiguous candles', () => {
+    const rows = series(74, '15M'),
+      examples = buildHistoricalExamples(
+        rows,
+        rows.at(-1)!.time + step['15M'],
+        '15M',
+        50,
+      );
+    expect(examples).toHaveLength(1);
+    expect(examples[0]!.reference!.inputCandles).toHaveLength(
+      24,
+    );
+    expect(
+      examples[0]!.reference!.continuationCandles,
+    ).toHaveLength(50);
+
+    expect(
+      buildHistoricalExamples(
+        rows.slice(0, 73),
+        rows.at(-1)!.time + step['15M'],
+        '15M',
+        50,
+      ),
+    ).toHaveLength(0);
+
+    const withGap = rows.map((row) => ({ ...row }));
+    withGap[40]!.time += 1;
+    expect(
+      buildHistoricalExamples(
+        withGap,
+        rows.at(-1)!.time + step['15M'],
+        '15M',
+        50,
+      ),
+    ).toHaveLength(0);
+  });
+
+  it('accepts only the six configured integer horizons', () => {
+    for (const horizon of [5, 10, 20, 30, 40, 50])
+      expect(isSupportedForecastHorizon(horizon)).toBe(true);
+    for (const horizon of [0, 17, 51, -5, 5.5, NaN, Infinity])
+      expect(isSupportedForecastHorizon(horizon)).toBe(false);
   });
 
   it('derives ordered empirical q10/q50/q90 bands from matched future paths', () => {

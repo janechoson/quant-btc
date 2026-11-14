@@ -2,7 +2,7 @@
   <div class="toolbar">
     <div class="segmented">
       <button
-        v-for="tf in ['1H', '4H', '1D'] as const"
+        v-for="tf in ['15M', '1H', '4H', '1D'] as const"
         :key="tf"
         class="tf"
         :class="{ active: market.timeframe === tf }"
@@ -15,10 +15,15 @@
     <label class="horizon-select"
       >Dự đoán:
       <select v-model.number="horizon">
-        <option :value="5">5 nến (~5 giờ)</option>
-        <option :value="10">10 nến (~10 giờ)</option>
-        <option :value="20">20 nến (~20 giờ)</option>
-        <option :value="30">30 nến (~30 giờ)</option>
+        <option
+          v-for="value in horizons"
+          :key="value"
+          :value="value"
+        >
+          {{ value }} nến (~{{
+            formatForecastDuration(market.timeframe, value)
+          }})
+        </option>
       </select></label
     ><button
       class="predict-button"
@@ -42,8 +47,10 @@
 import { ref } from 'vue';
 import { useMarketStore } from '../../stores/market';
 import { useForecastStore } from '../../stores/forecast';
+import { formatForecastDuration } from '../../utils/forecast-duration';
+const horizons = [5, 10, 20, 30, 40, 50] as const;
 const market = useMarketStore(),
   forecast = useForecastStore(),
-  horizon = ref(10),
+  horizon = ref<(typeof horizons)[number]>(10),
   emit = defineEmits<{ toggleVolume: [] }>();
 </script>
